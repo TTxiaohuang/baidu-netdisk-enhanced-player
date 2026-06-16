@@ -1,29 +1,24 @@
 // ==UserScript==
 // @name         百度网盘增强播放器
 // @namespace    https://github.com/TTxiaohuang
-// @version      2.0.0
+// @version      2.1.0
 // @description  为百度网盘网页端注入解锁720P画质、无极调速、极速秒开、记忆播放、选集、画中画、添加字幕等高级功能。
 // @author       TTxiaohuang & Refactored
-// @match        http://yun.baidu.com/s/*
-// @match        https://yun.baidu.com/s/*
-// @match        https://pan.baidu.com/s/*
-// @match        https://pan.baidu.com/play/video*
-// @match        https://pan.baidu.com/pfile/video*
+// @include      *://yun.baidu.com/*
+// @include      *://pan.baidu.com/*
 // @match        https://pan.baidu.com/mbox/streampage*
 // @connect      baidu.com
 // @connect      baidupcs.com
-// @require      https://cdn.staticfile.net/hls.js/1.5.7/hls.min.js
-// @require      https://cdn.staticfile.net/dplayer/1.27.1/DPlayer.min.js
+// @require      https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js
+// @require      https://cdn.jsdelivr.net/npm/dplayer@1.27.1/dist/DPlayer.min.js
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzA2YyIgZD0iTTEyIDJDMi41IDIgMCA0LjUgMCAxMnM0LjUgMTAgMTIgMTAgMTAtNC41IDEwLTEwUzIxLjUgMiAxMiAyem0tMiAxNC41di05bDYgNC41LTYgNC41eiIvPjwvc3ZnPg==
 // @run-at       document-start
 // @grant        unsafeWindow
-// @grant        GM_xmlhttpRequest
-// @grant        GM_getValue
-// @grant        GM_setValue
 // ==/UserScript==
 
 (function() {
     'use strict';
+    console.log("[TTxiaohuang] 脚本开始运行! 当前网址:", location.href);
 
     var obj = {
         video_page: {
@@ -130,90 +125,96 @@
         if (unsafeWindow._xhrHooked) return;
         unsafeWindow._xhrHooked = true;
 
-        var originalXhrOpen = unsafeWindow.XMLHttpRequest.prototype.open;
-        unsafeWindow.XMLHttpRequest.prototype.open = function(method, url) {
-            this._url = url;
-            this.addEventListener("load", function() {
-                if (this.readyState === 4 && this.status === 200) {
-                    var responseURL = this.responseURL || this._url || "";
-                    if (responseURL.indexOf("/api/filemetas") >= 0) {
-                        try {
-                            var responseText = this.responseText || (typeof this.response === 'string' ? this.response : JSON.stringify(this.response));
-                            var response = JSON.parse(responseText);
-                            if (response.info && response.info.length > 0) {
-                                if (response.info.length == 1 && obj.video_page.info.length == 0) {
-                                    obj.video_page.info[0] = response.info[0];
-                                    obj.triggerPlayInit(response.info[0].resolution);
-                                } else {
-                                    obj.video_page.categorylist = response.info;
-                                }
-                            }
-                        } catch(e) {}
+        // 监听来自网页注入代码的拦截数据
+        window.addEventListener("BaiduPan_XHR_Intercept", function(e) {
+            var detail = e.detail;
+            if (!detail || !detail.url || !detail.response) return;
+            var responseURL = detail.url;
+            console.log("[TTxiaohuang] 外层收到拦截数据:", responseURL);
+            
+            if (responseURL.indexOf("/api/filemetas") >= 0) {
+                try {
+                    var response = JSON.parse(detail.response);
+                    console.log("[TTxiaohuang] 解析 filemetas 成功, 视频数:", response.info ? response.info.length : 0);
+                    if (response.info && response.info.length > 0) {
+                        if (response.info.length == 1 && obj.video_page.info.length == 0) {
+                            obj.video_page.info[0] = response.info[0];
+                            obj.triggerPlayInit(response.info[0].resolution);
+                        } else {
+                            obj.video_page.categorylist = response.info;
+                        }
                     }
-                    if (responseURL.indexOf("/mbox/msg/mediainfo") >= 0) {
-                        try {
-                            var responseText = this.responseText || (typeof this.response === 'string' ? this.response : JSON.stringify(this.response));
-                            var response = JSON.parse(responseText);
-                            if (response && response.info) {
-                                obj.video_page.adToken = response.adToken;
-                                var getParam = obj.require("base:widget/tools/service/tools.url.js").getParam;
-                                obj.video_page.info[0] = {
-                                    from_uk: getParam("from_uk"), to: getParam("to"), fs_id: getParam("fs_id"),
-                                    name: getParam("name") || "", type: getParam("type"), md5: getParam("md5"),
-                                    msg_id: getParam("msg_id"), path: decodeURIComponent(decodeURIComponent(getParam("path")))
-                                };
-                                obj.triggerPlayInit(response.info.resolution);
-                            }
-                        } catch(e) {}
+                } catch(err) {}
+            }
+            if (responseURL.indexOf("/mbox/msg/mediainfo") >= 0) {
+                try {
+                    var response = JSON.parse(detail.response);
+                    if (response && response.info) {
+                        obj.video_page.adToken = response.adToken;
+                        var getParam = obj.require("base:widget/tools/service/tools.url.js").getParam;
+                        obj.video_page.info[0] = {
+                            from_uk: getParam("from_uk"), to: getParam("to"), fs_id: getParam("fs_id"),
+                            name: getParam("name") || "", type: getParam("type"), md5: getParam("md5"),
+                            msg_id: getParam("msg_id"), path: decodeURIComponent(decodeURIComponent(getParam("path")))
+                        };
+                        obj.triggerPlayInit(response.info.resolution);
                     }
-                }
-            });
-            return originalXhrOpen.apply(this, arguments);
-        };
+                } catch(err) {}
+            }
+        });
 
-        var originalFetch = unsafeWindow.fetch;
-        if(originalFetch) {
-            unsafeWindow.fetch = function() {
-                var fetchUrl = arguments[0];
-                var p = originalFetch.apply(this, arguments);
-                p.then(function(res) {
-                    var responseURL = res.url || (typeof fetchUrl === 'string' ? fetchUrl : (fetchUrl && fetchUrl.url) || "");
-                    if (responseURL.indexOf("/api/filemetas") >= 0) {
-                        res.clone().text().then(function(text) {
-                            try {
-                                var response = JSON.parse(text);
-                                if (response.info && response.info.length > 0) {
-                                    if (response.info.length == 1 && obj.video_page.info.length == 0) {
-                                        obj.video_page.info[0] = response.info[0];
-                                        obj.triggerPlayInit(response.info[0].resolution);
-                                    } else {
-                                        obj.video_page.categorylist = response.info;
-                                    }
-                                }
-                            } catch(e) {}
-                        }).catch(function(){});
-                    }
-                    if (responseURL.indexOf("/mbox/msg/mediainfo") >= 0) {
-                        res.clone().text().then(function(text) {
-                            try {
-                                var response = JSON.parse(text);
-                                if (response && response.info) {
-                                    obj.video_page.adToken = response.adToken;
-                                    var getParam = obj.require("base:widget/tools/service/tools.url.js").getParam;
-                                    obj.video_page.info[0] = {
-                                        from_uk: getParam("from_uk"), to: getParam("to"), fs_id: getParam("fs_id"),
-                                        name: getParam("name") || "", type: getParam("type"), md5: getParam("md5"),
-                                        msg_id: getParam("msg_id"), path: decodeURIComponent(decodeURIComponent(getParam("path")))
-                                    };
-                                    obj.triggerPlayInit(response.info.resolution);
-                                }
-                            } catch(e) {}
-                        }).catch(function(){});
-                    }
-                });
-                return p;
-            };
-        }
+        // 将拦截代码直接注入到网页前端，避免扩展沙盒导致的执行延迟
+        var hookCode = `
+            (function() {
+                if (window._baiduPanXhrHooked) return;
+                window._baiduPanXhrHooked = true;
+
+                function sendToUserscript(url, responseText) {
+                    window.dispatchEvent(new CustomEvent("BaiduPan_XHR_Intercept", {
+                        detail: { url: url, response: responseText }
+                    }));
+                }
+
+                var originalXhrOpen = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    this._url = url;
+                    this.addEventListener("load", function() {
+                        if (this.readyState === 4 && this.status === 200) {
+                            var responseURL = this.responseURL || this._url || "";
+                            if (responseURL.indexOf("/api/filemetas") >= 0 || responseURL.indexOf("/mbox/msg/mediainfo") >= 0) {
+                                console.log("[TTxiaohuang] 底层抓到目标请求 (XHR):", responseURL);
+                                var responseText = this.responseText || (typeof this.response === 'string' ? this.response : JSON.stringify(this.response));
+                                sendToUserscript(responseURL, responseText);
+                            }
+                        }
+                    });
+                    return originalXhrOpen.apply(this, arguments);
+                };
+
+                var originalFetch = window.fetch;
+                if (originalFetch) {
+                    window.fetch = function() {
+                        var fetchUrl = arguments[0];
+                        var p = originalFetch.apply(this, arguments);
+                        p.then(function(res) {
+                            var responseURL = res.url || (typeof fetchUrl === 'string' ? fetchUrl : (fetchUrl && fetchUrl.url) || "");
+                            if (responseURL.indexOf("/api/filemetas") >= 0 || responseURL.indexOf("/mbox/msg/mediainfo") >= 0) {
+                                console.log("[TTxiaohuang] 底层抓到目标请求 (Fetch):", responseURL);
+                                res.clone().text().then(function(text) {
+                                    sendToUserscript(responseURL, text);
+                                }).catch(function(){});
+                            }
+                        });
+                        return p;
+                    };
+                }
+            })();
+        `;
+        
+        var scriptEl = document.createElement("script");
+        scriptEl.textContent = hookCode;
+        (document.head || document.documentElement || document.body).appendChild(scriptEl);
+        scriptEl.remove();
     };
 
     obj.triggerPlayInit = function(resolution) {
@@ -302,10 +303,14 @@
         }
         if (obj.video_page.adToken || (obj.video_page.adToken = adToken) || obj.getVip() > 1) return callback && callback();
         
-        fetch(url, { credentials: 'include' }).then(r => r.json()).then(n => {
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 5000);
+        fetch(url, { credentials: 'include', signal: controller.signal }).then(r => r.json()).then(n => {
+            clearTimeout(timeoutId);
             if (133 === n.errno && 0 !== n.adTime) obj.video_page.adToken = n.adToken;
             callback && callback();
         }).catch(e => {
+            clearTimeout(timeoutId);
             callback && callback();
         });
     };
@@ -337,11 +342,17 @@
     // ==================== 播放器创建 ====================
     obj.requireCdn = function (urls, callback) {
         var loaded = 0;
+        var errors = 0;
         urls.forEach(function (url) {
             var script = document.createElement("script");
             script.src = url;
             script.onload = function () {
-                if (++loaded === urls.length) callback && callback();
+                if (++loaded + errors === urls.length) callback && callback();
+            };
+            script.onerror = function () {
+                errors++;
+                console.warn("[TTxiaohuang] CDN 加载失败:", url);
+                if (loaded + errors === urls.length) callback && callback();
             };
             document.head.appendChild(script);
         });
@@ -352,8 +363,8 @@
             obj.dPlayerStart();
         } else {
             obj.requireCdn([
-                "https://cdn.staticfile.net/hls.js/1.5.7/hls.min.js",
-                "https://cdn.staticfile.net/dplayer/1.27.1/DPlayer.min.js"
+                "https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js",
+                "https://cdn.jsdelivr.net/npm/dplayer@1.27.1/dist/DPlayer.min.js"
             ], function () {
                 obj.dPlayerStart();
             });
@@ -369,8 +380,18 @@
                 dPlayerNode.setAttribute("id", "dplayer");
                 dPlayerNode.setAttribute("style", "width: 100%; height: 100%; background: #000;");
                 obj.videoNode = videoNode.parentNode.replaceChild(dPlayerNode, videoNode);
+                // 停止被替换掉的原始视频元素，防止脱离 DOM 后在内存中继续播放耗带宽
+                if (obj.videoNode) {
+                    try {
+                        var oldVids = obj.videoNode.querySelectorAll('video');
+                        if (!oldVids.length && obj.videoNode.tagName && obj.videoNode.tagName.toUpperCase() === 'VIDEO') oldVids = [obj.videoNode];
+                        for (var oi = 0; oi < oldVids.length; oi++) {
+                            try { oldVids[oi].pause(); oldVids[oi].removeAttribute('src'); oldVids[oi].load(); } catch(e2) {}
+                        }
+                    } catch(e) {}
+                }
             }
-        } else { return setTimeout(obj.dPlayerStart, 500); }
+        } else { return setTimeout(obj.dPlayerStart, 200); }
 
         if (obj._hls) { try { obj._hls.destroy(); } catch (e) {} obj._hls = null; }
 
@@ -393,15 +414,7 @@
                     hls: function (video, player) {
                         if (obj._hls) { try { obj._hls.destroy(); } catch (e) {} obj._hls = null; }
 
-                        var hls = new window.Hls({
-                            enableWorker: true,
-                            nudgeMaxRetry: 5,
-                            fragLoadingMaxRetry: 3,
-                            lowLatencyMode: false,
-                            maxBufferHole: 0.5,
-                            maxMaxBufferLength: 60,
-                            stretchShortVideoTrack: true,
-                        });
+                        var hls = new window.Hls();
                         hls.loadSource(video.src);
                         hls.attachMedia(video);
 
@@ -1366,6 +1379,7 @@
     // ==================== 启动 ====================
     obj.run = function () {
         var url = location.href;
+        console.log("[TTxiaohuang] 进入 obj.run，进行环境判定，URL:", url);
         obj.setupXHRHook();
 
         if (url.indexOf(".baidu.com/pfile/video") > 0) {
@@ -1381,13 +1395,20 @@
         } else {
             obj.pageReady(function () {
                 if (url.indexOf(".baidu.com/s/") > 0) {
+                    console.log("[TTxiaohuang] 判定为 sharevideo");
                     obj.video_page.flag = "sharevideo";
                     obj.playSharePage();
-                } else if (url.indexOf(".baidu.com/play/video#/video") > 0) {
+                } else if (url.indexOf(".baidu.com/play/video") > 0 || url.indexOf(".baidu.com/disk/") > 0 || url.indexOf(".baidu.com/video") > 0) {
+                    console.log("[TTxiaohuang] 判定为 playvideo");
                     obj.video_page.flag = "playvideo";
-                    window.onhashchange = function () { location.reload(); };
+                    window.onhashchange = function () { 
+                        if (location.href.indexOf("/video") > 0) location.reload(); 
+                    };
                 } else if (url.indexOf(".baidu.com/mbox/streampage") > 0) {
+                    console.log("[TTxiaohuang] 判定为 mboxvideo");
                     obj.video_page.flag = "mboxvideo";
+                } else {
+                    console.log("[TTxiaohuang] 无法判定当前页面的 flag!");
                 }
             });
         }
